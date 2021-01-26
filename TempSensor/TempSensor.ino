@@ -1,12 +1,30 @@
-#include <WiFi.h>
-#include <WebServer.h>
-#include "config.h"
+#include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
+
+#include <Ticker.h>
+Ticker ticker;
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
 #endif
 
+int LED = LED_BUILTIN;
 
+void tick()
+{
+    //toggle state
+    digitalWrite(LED, !digitalRead(LED)); // set pin to the opposite state
+}
+
+//gets called when WiFiManager enters configuration mode
+void configModeCallback(WiFiManager *myWiFiManager)
+{
+    Serial.println("Entered config mode");
+    Serial.println(WiFi.softAPIP());
+    //if you used auto generated SSID, print it
+    Serial.println(myWiFiManager->getConfigPortalSSID());
+    //entered config mode, make led toggle faster
+    ticker.attach(0.2, tick);
+}
 
 // the setup function runs once when you press reset or power the board
 void led_setup()
@@ -21,70 +39,55 @@ void led_loop()
 {
     Serial.println("Hello....2");
     digitalWrite(LED_BUILTIN, HIGH); // turn the LED on (HIGH is the voltage level)
-    delay(100);                     // wait for a second
+    delay(100);                      // wait for a second
     digitalWrite(LED_BUILTIN, LOW);  // turn the LED off by making the voltage LOW
     delay(1000);                     // wait for a second
 }
 
-
-const char *ssid = WIFI_SSID;
-const char *password = WIFI_PASSWORD;
-WebServer server(80);
-
-void handleRoot()
-{
-    String page = "<!DOCTYPE html>";
-    page += "<head>";
-    page += "    <title>Serveur ESP32</title>";
-    page += "    <meta http-equiv='refresh' content='60' name='viewport' content='width=device-width, initial-scale=1' charset='UTF-8'/>";
-    page += "</head>";
-
-    page += "<body lang='fr'>";
-    page += "    <h1>Serveur</h1>";
-    page += "    <p>Ce serveur est hébergé sur un ESP32</p>";
-    page += "    <i>Créé par Benoit Moussaud</i>";
-    page += "</body>";
-
-    page += "</html>";
-
-    server.send(200, "text/html", page);
-}
-
-void handleNotFound()
-{
-    server.send(404, "text/plain", "404: Not found");
-}
-
 void setup()
 {
+    WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
+    // put your setup code here, to run once:
     Serial.begin(115200);
+
+    //set led pin as output
+    pinMode(LED, OUTPUT);
+    // start ticker with 0.5 because we start in AP mode and try to connect
+    ticker.attach(0.6, tick);
+
     delay(1000);
-    Serial.println("\n");
+    WiFiManager wm;
+    //reset settings - for testing
+    // wm.resetSettings();
 
-    WiFi.persistent(false);
-    WiFi.begin(ssid, password);
-    Serial.print(ssid);
-    Serial.print("Tentative de connexion...");
+    //set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
+    wm.setAPCallback(configModeCallback);
 
-    while (WiFi.status() != WL_CONNECTED)
+    //fetches ssid and pass and tries to connect
+    //if it does not connect it starts an access point with the specified name
+    //here  "AutoConnectAP"
+    //and goes into a blocking loop awaiting configuration
+    if (!wm.autoConnect())
     {
-        Serial.print(".");
-        delay(100);
+        Serial.println("failed to connect and hit timeout");
+        //reset and try again, or maybe put it to deep sleep
+        ESP.restart();
+        delay(1000);
     }
 
-    Serial.println("\n");
-    Serial.println("Connexion etablie!");
-    Serial.print("Adresse IP: ");
+    //if you get here you have connected to the WiFi
+    Serial.println("connected...yeey :)");
+    ticker.detach();
+    //keep LED on
+    digitalWrite(LED, LOW);
+
+    Serial.println("local ip");
     Serial.println(WiFi.localIP());
-
-    server.on("/", handleRoot);
-    server.onNotFound(handleNotFound);
-    server.begin();
-
-    Serial.println("Serveur web actif!");
+    Serial.println(WiFi.gatewayIP());
+    Serial.println(WiFi.subnetMask());
 }
 
 void loop()
 {
-    server.handleClient();
+    // put your main code here, to run repeatedly:
 }
