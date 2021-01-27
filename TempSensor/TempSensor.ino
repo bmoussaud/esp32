@@ -1,6 +1,6 @@
 #include <WebServer.h>
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
-
+#include <ArduinoJson.h> // https://github.com/bblanchon/ArduinoJson
 #include <Ticker.h>
 Ticker ticker;
 
@@ -10,8 +10,8 @@ Ticker ticker;
 
 int LED = LED_BUILTIN;
 
-#define PIN_RESET_BUTTON 4        
-int RESET = 0; 
+#define PIN_RESET_BUTTON 4
+int RESET = 0;
 
 WiFiManager wm;
 WebServer server(80);
@@ -95,10 +95,11 @@ void setup()
 
     // Display an HTML interface to the project from a browser on esp32_ip_address /
     server.on("/", handle_root);
+    server.on("/temp", handle_temperature);
 
     server.begin();
     Serial.println("HTTP server started");
-    delay(100); 
+    delay(100);
 }
 
 void loop()
@@ -127,5 +128,30 @@ String HTML = "<!DOCTYPE html>\
 // Handle root url (/)
 void handle_root()
 {
+    Serial.println("handle_temperature");
+    Serial.println(HTML);
+    Serial.println("/handle_temperature");
     server.send(200, "text/html", HTML);
+}
+
+// Handle root url (/temp)
+void handle_temperature()
+{
+    Serial.println(">>> IN handle_temperature");
+    StaticJsonDocument<200> doc;
+
+    doc["temperature"] = "15";
+    doc["device"] = "esp_32b";
+    doc["room"] = "saloon";
+    
+    String output;
+    serializeJson(doc, output);
+    
+    Serial.println("2 handle_temperature");
+    Serial.println(output);
+    Serial.println("/2 handle_temperature");
+    
+    server.send(200, "application/json", output);
+
+    Serial.println("<<< OUT handle_temperature");
 }
