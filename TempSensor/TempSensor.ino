@@ -1,3 +1,4 @@
+#include <WebServer.h>
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 
 #include <Ticker.h>
@@ -8,6 +9,12 @@ Ticker ticker;
 #endif
 
 int LED = LED_BUILTIN;
+
+#define PIN_RESET_BUTTON 4        
+int RESET = 0; 
+
+WiFiManager wm;
+WebServer server(80);
 
 void tick()
 {
@@ -56,7 +63,7 @@ void setup()
     ticker.attach(0.6, tick);
 
     delay(1000);
-    WiFiManager wm;
+
     //reset settings - for testing
     // wm.resetSettings();
 
@@ -85,9 +92,40 @@ void setup()
     Serial.println(WiFi.localIP());
     Serial.println(WiFi.gatewayIP());
     Serial.println(WiFi.subnetMask());
+
+    // Display an HTML interface to the project from a browser on esp32_ip_address /
+    server.on("/", handle_root);
+
+    server.begin();
+    Serial.println("HTTP server started");
+    delay(100); 
 }
 
 void loop()
 {
-    // put your main code here, to run repeatedly:
+    server.handleClient();
+
+    RESET = digitalRead(PIN_RESET_BUTTON);
+    if (RESET == HIGH)
+    {
+        Serial.println("Erase settings and restart ...");
+        delay(1000);
+        wm.resetSettings();
+        ESP.restart();
+    }
+}
+
+// HTML & CSS contents which display on web server
+String HTML = "<!DOCTYPE html>\
+<html>\
+  <body>\
+    <h1>Welcome</h1>\
+    <p>Your first Iot Project made with ESP32</p>\
+    <p>&#128522;</p>\
+  </body>\
+</html>";
+// Handle root url (/)
+void handle_root()
+{
+    server.send(200, "text/html", HTML);
 }
