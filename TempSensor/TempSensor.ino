@@ -1,7 +1,11 @@
 #include <WebServer.h>
 #include <WiFiManager.h> // https://github.com/tzapu/WiFiManager
 #include <ArduinoJson.h> // https://github.com/bblanchon/ArduinoJson
+//#include <DHT.h>
+#include <Adafruit_Sensor.h>
 #include <DHT.h>
+#include <DHT_U.h>
+
 #include <Ticker.h>
 #include <stdlib.h>
 #include <time.h>
@@ -22,7 +26,7 @@ class TemperatureSensor
 public:
     TemperatureSensor(uint8_t pin, uint8_t type)
     {
-        _dht = new DHT(pin, type);
+        _dht = new DHT_Unified(pin, type);
     }
 
     void setup()
@@ -30,6 +34,8 @@ public:
         Serial.println("Start the DHT sensor.");
         _dht->begin();
         delay(500);
+        _dht->temperature().getSensor(&t_sensor);
+        _dht->humidity().getSensor(&h_sensor);        
     }
 
     String sensor_json()
@@ -37,14 +43,18 @@ public:
         this->_read_temperature();
         StaticJsonDocument<200> doc;
 
-        doc["sensor"] = "esp_32a_dht11";
-        doc["counter"] = ++this -> dht_counter;
+        doc["sensor"] = "proto1";
+        doc["counter"] = ++this->dht_counter;
+        
+        doc["temperature_c"] = this->t;        
+        doc["temperature_c_ts"] = this->t_timestamp;
+        
+        doc["sensor_temp"] = t_sensor.name;
+        doc["sensor_humidity"] = h_sensor.name;
+        
         doc["humidity"] = this->h;
-        doc["temperature_c"] = this->t;
-        doc["temperature_f"] = this->f;
-        doc["heat_index_c"] = this->hic;
-        doc["heat_index_f"] = this->hif;
-    
+        doc["humidity_ts"] = this->h_timestamp;
+        
         String output;
         serializeJson(doc, output);
         return output;
@@ -53,52 +63,51 @@ public:
 private:
     void _read_temperature()
     {
-        Serial.println("Reading temperature or humidity takes about 250 milliseconds!");
-        // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-        Serial.println("readHumidity");
-        this->h = _dht->readHumidity();
-        // Read temperature as Celsius (the default)
-        Serial.println("readTemperature");
-        this->t = _dht->readTemperature();
-        // Read temperature as Fahrenheit (isFahrenheit = true)
-        Serial.println("readTemperature Fahrenheit");
-        this->f = _dht->readTemperature(true);
-
-        // Check if any reads failed and exit early (to try again).
-        if (isnan(h) || isnan(t) || isnan(f))
+        sensors_event_t event;
+        _dht->temperature().getEvent(&event);
+        if (isnan(event.temperature))
         {
-            Serial.println(F("Failed to read from DHT sensor!"));            
+            Serial.println(F("Error reading temperature!"));
         }
-        else {
-            // Compute heat index in Fahrenheit (the default)
-            Serial.println("Compute heat index in Fahrenheit (the default)");
-            //https://fr.wikipedia.org/wiki/Indice_de_chaleur
-            this->hif = _dht->computeHeatIndex(f, h);
-            // Compute heat index in Celsius (isFahreheit = false)
-            Serial.println("Compute heat index in Celsius (isFahreheit = false)");
-            this->hic = _dht->computeHeatIndex(t, h, false);
+        else
+        {
+            Serial.print(F("Temperature: "));
+            Serial.print(event.temperature);           
+            Serial.println(F("°C"));
+            Serial.println(F("timestamp: "));
+            Serial.println(event.timestamp);
+            Serial.println(F("sensor_id: "));
+            Serial.println(event.sensor_id);
+            this->t = event.temperature;
+            this->t_timestamp = event.timestamp;            
+            
+        }
+        // Get humidity event and print its value.
+        _dht->humidity().getEvent(&event);
+        if (isnan(event.relative_humidity))
+        {
+            Serial.println(F("Error reading humidity!"));
+        }
+        else
+        {
+            this->h = event.relative_humidity;
+            this->h_timestamp = event.timestamp;            
+        }
+    }
 
-            Serial.print(F("Humidity: "));
-            Serial.print(this->h);
-            Serial.print(F("%  Temperature: "));
-            Serial.print(this->t);
-            Serial.print(F("°C "));
-            Serial.print(this->f);
-            Serial.print(F("°F  Heat index: "));
-            Serial.print(this->hic);
-            Serial.print(F("°C "));
-            Serial.print(this->hif);
-            Serial.println(F("°F"));
-        }
+    void _dump_sensors_info()
+    {
+        
     }
 
     float h;
     float t;
-    float f;
-    float hif;
-    float hic;
+    long t_timestamp;
+    long h_timestamp;
     long dht_counter = 0;
-    DHT *_dht;
+    sensor_t t_sensor;
+    sensor_t h_sensor;
+    DHT_Unified *_dht;
 };
 
 #define DHTPIN 4
@@ -106,7 +115,7 @@ private:
 
 WiFiManager wm;
 WebServer server(80);
-TemperatureSensor dht11(DHTPIN,DHTTYPE);
+TemperatureSensor dht11(DHTPIN, DHTTYPE);
 
 void tick()
 {
@@ -210,7 +219,7 @@ void reset_wifi()
 void setup()
 {
     setup_wifi();
-    dht11.setup();   
+    dht11.setup();
 }
 
 void loop()
@@ -236,14 +245,12 @@ void handle_root()
     server.send(200, "text/html", HTML);
 }
 
-
 // Handle root url (/temp)
 void handle_temperature()
 {
-    Serial.println(">>> IN handle_temperature");    
+    Serial.println(">>> IN handle_temperature");
     String output;
-    output = dht11.sensor_json();    
+    output = dht11.sensor_json();
     Serial.println(output);
     server.send(200, "application/json", output);
 }
-
