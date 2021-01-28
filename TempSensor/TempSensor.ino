@@ -11,28 +11,102 @@ Ticker ticker;
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
 #endif
-
 int LED = LED_BUILTIN;
 
 #define PIN_RESET_BUTTON 4
 int RESET = 0;
 
-#define DHTPIN 4
-#define DHTTYPE DHT11
-DHT dht(DHTPIN, DHTTYPE);
-
-typedef struct
+class TemperatureSensor
 {
+
+public:
+    TemperatureSensor(uint8_t pin, uint8_t type)
+    {
+        _dht = new DHT(pin, type);
+    }
+
+    void setup()
+    {
+        Serial.println("Start the DHT sensor.");
+        _dht->begin();
+        delay(500);
+    }
+
+    String sensor_json()
+    {
+        this->_read_temperature();
+        StaticJsonDocument<200> doc;
+
+        doc["sensor"] = "esp_32a_dht11";
+        doc["counter"] = ++this -> dht_counter;
+        doc["humidity"] = this->h;
+        doc["temperature_c"] = this->t;
+        doc["temperature_f"] = this->f;
+        doc["heat_index_c"] = this->hic;
+        doc["heat_index_f"] = this->hif;
+    
+        String output;
+        serializeJson(doc, output);
+        return output;
+    }
+
+private:
+    void _read_temperature()
+    {
+        Serial.println("Reading temperature or humidity takes about 250 milliseconds!");
+        // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
+        Serial.println("readHumidity");
+        this->h = _dht->readHumidity();
+        // Read temperature as Celsius (the default)
+        Serial.println("readTemperature");
+        this->t = _dht->readTemperature();
+        // Read temperature as Fahrenheit (isFahrenheit = true)
+        Serial.println("readTemperature Fahrenheit");
+        this->f = _dht->readTemperature(true);
+
+        // Check if any reads failed and exit early (to try again).
+        if (isnan(h) || isnan(t) || isnan(f))
+        {
+            Serial.println(F("Failed to read from DHT sensor!"));            
+        }
+        else {
+            // Compute heat index in Fahrenheit (the default)
+            Serial.println("Compute heat index in Fahrenheit (the default)");
+            //https://fr.wikipedia.org/wiki/Indice_de_chaleur
+            this->hif = _dht->computeHeatIndex(f, h);
+            // Compute heat index in Celsius (isFahreheit = false)
+            Serial.println("Compute heat index in Celsius (isFahreheit = false)");
+            this->hic = _dht->computeHeatIndex(t, h, false);
+
+            Serial.print(F("Humidity: "));
+            Serial.print(this->h);
+            Serial.print(F("%  Temperature: "));
+            Serial.print(this->t);
+            Serial.print(F("°C "));
+            Serial.print(this->f);
+            Serial.print(F("°F  Heat index: "));
+            Serial.print(this->hic);
+            Serial.print(F("°C "));
+            Serial.print(this->hif);
+            Serial.println(F("°F"));
+        }
+    }
+
     float h;
     float t;
     float f;
     float hif;
     float hic;
-} Temperature;
+    long dht_counter = 0;
+    DHT *_dht;
+};
+
+#define DHTPIN 4
+#define DHTTYPE DHT11
 
 WiFiManager wm;
 WebServer server(80);
-long dht_counter = 0;
+TemperatureSensor dht11(DHTPIN,DHTTYPE);
 
 void tick()
 {
@@ -121,14 +195,6 @@ void setup_wifi()
     delay(100);
 }
 
-void setup_dht()
-{
-    //Serial.begin(9600);
-    Serial.println("Start the DHT sensor.");
-    dht.begin();
-    delay(500);
-}
-
 void reset_wifi()
 {
     RESET = digitalRead(PIN_RESET_BUTTON);
@@ -144,7 +210,7 @@ void reset_wifi()
 void setup()
 {
     setup_wifi();
-    setup_dht();
+    dht11.setup();   
 }
 
 void loop()
@@ -170,89 +236,14 @@ void handle_root()
     server.send(200, "text/html", HTML);
 }
 
-Temperature *read_temperature()
-{
-    Serial.println("Reading temperature or humidity takes about 250 milliseconds!");
-    // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
-    Serial.println("readHumidity");
-    float h = dht.readHumidity();
-    // Read temperature as Celsius (the default)
-    Serial.println("readTemperature");
-    float t = dht.readTemperature();
-    // Read temperature as Fahrenheit (isFahrenheit = true)
-    Serial.println("readTemperature Fahrenheit");
-    float f = dht.readTemperature(true);
-
-    // Check if any reads failed and exit early (to try again).
-    if (isnan(h) || isnan(t) || isnan(f))
-    {
-        Serial.println(F("Failed to read from DHT sensor!"));
-        return NULL;
-    }
-
-    // Compute heat index in Fahrenheit (the default)
-    Serial.println("Compute heat index in Fahrenheit (the default)");
-    //https://fr.wikipedia.org/wiki/Indice_de_chaleur
-    float hif = dht.computeHeatIndex(f, h);
-    // Compute heat index in Celsius (isFahreheit = false)
-    Serial.println("Compute heat index in Celsius (isFahreheit = false)");
-    float hic = dht.computeHeatIndex(t, h, false);
-
-    Serial.print(F("Humidity: "));
-    Serial.print(h);
-    Serial.print(F("%  Temperature: "));
-    Serial.print(t);
-    Serial.print(F("°C "));
-    Serial.print(f);
-    Serial.print(F("°F  Heat index: "));
-    Serial.print(hic);
-    Serial.print(F("°C "));
-    Serial.print(hif);
-    Serial.println(F("°F"));
-
-    Temperature *temperature = (Temperature *)malloc(sizeof(Temperature));
-    temperature->f = f;
-    temperature->h = h;
-    temperature->t = t;
-    temperature->hic = hic;
-    temperature->hif = hif;
-    //Serial.println(">>> return temperature");
-    return temperature;
-}
 
 // Handle root url (/temp)
 void handle_temperature()
 {
-    Serial.println(">>> IN handle_temperature");
-    StaticJsonDocument<200> doc;
-    Temperature *temperature = read_temperature();
-    doc["sensor"] = "esp_32a";
-    doc["counter"] = ++dht_counter;
-    if (temperature == NULL)
-    {
-        doc["error"] = F(" Failed to read from DHT sensor !");
-    }
-    else
-    {
-        doc["humidity"] = temperature->h;
-        doc["temperature_c"] = temperature->t;
-        doc["temperature_f"] = temperature->f;
-        doc["heat_index_c"] = temperature->hic;
-        doc["heat_index_f"] = temperature->hif;
-    }
-
+    Serial.println(">>> IN handle_temperature");    
     String output;
-    serializeJson(doc, output);
-
-    Serial.println("2 handle_temperature");
+    output = dht11.sensor_json();    
     Serial.println(output);
-    Serial.println("/2 handle_temperature");
-
     server.send(200, "application/json", output);
-
-    Serial.println("<<< OUT handle_temperature");
-    if (temperature != NULL)
-    {
-        free(temperature);
-    }
 }
+
