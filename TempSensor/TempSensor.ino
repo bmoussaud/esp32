@@ -41,19 +41,21 @@ public:
     String sensor_json()
     {
         this->_read_temperature();
-        StaticJsonDocument<200> doc;
+        StaticJsonDocument<512> doc;
 
-        doc["sensor"] = "proto1";
-        doc["counter"] = ++this->dht_counter;
-        
-        doc["temperature_c"] = this->t;        
-        doc["temperature_c_ts"] = this->t_timestamp;
-        
-        doc["sensor_temp"] = t_sensor.name;
-        doc["sensor_humidity"] = h_sensor.name;
-        
-        doc["humidity"] = this->h;
-        doc["humidity_ts"] = this->h_timestamp;
+        JsonObject root = doc.to<JsonObject>();
+        root["sensor"] = "proto1";
+        root["counter"] = ++this->dht_counter;
+       
+        JsonObject temperature = root.createNestedObject("temperature");
+        temperature["value"] = this->t;        
+        temperature["timestamp"] = this->t_timestamp;
+        temperature["sensor"] = t_sensor.name;
+
+        JsonObject humidity = root.createNestedObject("humidity");
+        humidity["value"] = this->h;        
+        humidity["timestamp"] = this->h_timestamp;
+        humidity["sensor"] = h_sensor.name;                
         
         String output;
         serializeJson(doc, output);
@@ -70,19 +72,11 @@ private:
             Serial.println(F("Error reading temperature!"));
         }
         else
-        {
-            Serial.print(F("Temperature: "));
-            Serial.print(event.temperature);           
-            Serial.println(F("°C"));
-            Serial.println(F("timestamp: "));
-            Serial.println(event.timestamp);
-            Serial.println(F("sensor_id: "));
-            Serial.println(event.sensor_id);
+        {           
             this->t = event.temperature;
-            this->t_timestamp = event.timestamp;            
-            
+            this->t_timestamp = event.timestamp;                        
         }
-        // Get humidity event and print its value.
+        
         _dht->humidity().getEvent(&event);
         if (isnan(event.relative_humidity))
         {
@@ -93,11 +87,6 @@ private:
             this->h = event.relative_humidity;
             this->h_timestamp = event.timestamp;            
         }
-    }
-
-    void _dump_sensors_info()
-    {
-        
     }
 
     float h;
@@ -157,8 +146,7 @@ void setup_wifi()
     WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
     // put your setup code here, to run once:
     Serial.begin(9600);
-    //Serial.begin(115200);
-
+   
     //set led pin as output
     pinMode(LED, OUTPUT);
     // start ticker with 0.5 because we start in AP mode and try to connect
@@ -185,7 +173,7 @@ void setup_wifi()
     }
 
     //if you get here you have connected to the WiFi
-    Serial.println("connected...yeey :)");
+    Serial.println("WIFI connected...");
     ticker.detach();
     //keep LED on
     digitalWrite(LED, LOW);
