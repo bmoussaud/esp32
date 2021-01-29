@@ -13,4 +13,5 @@ libs:
 	arduino-cli lib install WifiManager
 	arduino-cli lib install "DHT sensor library"
 	arduino-cli lib install "Adafruit Unified Sensor"
+	arduino-cli lib install PubSubClient
 

@@ -5,6 +5,7 @@
 #include <Adafruit_Sensor.h>
 #include <DHT.h>
 #include <DHT_U.h>
+#include <PubSubClient.h> //https://github.com/knolleary/pubsubclient
 
 #include <Ticker.h>
 #include <stdlib.h>
@@ -19,6 +20,118 @@ int LED = LED_BUILTIN;
 
 #define PIN_RESET_BUTTON 4
 int RESET = 0;
+
+class MQTTSender
+{
+    std::shared_ptr<PubSubClient> client;
+    WiFiClient _espClient;
+    String deviceType = "ESP32";
+    char clientId[40];
+    char deviceId[40];
+    char chipId[40];
+    char infoTopic[200];
+    char dataTopic[200];
+    
+public:
+    MQTTSender()
+    {
+    }
+
+    void setup()
+    {
+        Serial.println("MQTTSender| setup");
+        String _chipId = String(WIFI_getChipId(), HEX);
+        String _mac = String(WiFi.macAddress());
+        _mac.toLowerCase();
+        _mac.replace(":", "");
+        _mac.replace("240ac4", "a"); // vendor = Espressif Inc.
+        String _clientId = "ESP_" + _mac;
+
+        strcpy(chipId, _chipId.c_str());
+        strcpy(clientId, _clientId.c_str());
+        strcpy(deviceId, _clientId.c_str());
+
+        
+        snprintf(infoTopic, sizeof(infoTopic), "%s%s", "sensors/info/", deviceId);
+        snprintf(dataTopic, sizeof(dataTopic), "%s%s", "sensors/data/", deviceId);
+
+        Serial.print("MQTTSender| clientId: ");
+        Serial.println(clientId);
+
+        client.reset(new PubSubClient(_espClient));
+        client->setServer("192.168.1.42", 1883);    
+        reconnect();       
+    }
+
+    void reconnect() {
+        while (!client->connected()) {
+            Serial.print("MQTTSender| attempting MQTT connection...");  
+            Serial.print("MQTTSender| clientId: ");
+            Serial.println(clientId);          
+            // Attempt to connect
+            if (client->connect(clientId)) {
+                Serial.println("connected");
+                // Once connected, publish an announcement...
+                _registerDevice();
+            } else {
+                Serial.print("failed, rc=");
+                Serial.print(client->state());
+                Serial.println(" try again in 5 seconds");
+                // Wait 5 seconds before retrying
+                delay(5000);
+            }
+        }
+    }
+
+    void _registerDevice()
+    {
+        StaticJsonDocument<2000> doc;
+        JsonObject root = doc.to<JsonObject>();
+
+        root["deviceType"] = deviceType;
+        root["deviceId"] = deviceId;
+        root["clientId"] = clientId;
+        root["chipId"] = chipId;
+        root["sketchName"] = "BMO";
+
+        publishInfo(root);
+    }
+
+    void publishInfo(JsonObject root)
+    {
+        String output;
+        serializeJson(root, output);
+        publish(infoTopic,output);
+    }
+
+    void publishData(String output) 
+    {
+        publish(dataTopic, output);
+    }
+
+    void publish(char *topic, String output) 
+    {
+        reconnect();
+        Serial.print("MQTTSender|Topic:>  ");
+        Serial.println(topic);
+        Serial.print("MQTTSender|output:> ");
+        Serial.println(output);
+        char buffer[2000];
+        output.toCharArray(buffer, 2000);
+
+        if (client->publish(topic, buffer) == true)
+        {
+            //Serial.println("WMM: Success sending message to register the device...");
+        }
+        else
+        {
+            Serial.println("MQTTSender| Error sending message to register the device...");
+            Serial.print("MQTTSender| State");
+            Serial.print(client->state());
+            Serial.println(".");
+        }
+    }
+};
 
 class TemperatureSensor
 {
@@ -35,7 +148,7 @@ public:
         _dht->begin();
         delay(500);
         _dht->temperature().getSensor(&t_sensor);
-        _dht->humidity().getSensor(&h_sensor);        
+        _dht->humidity().getSensor(&h_sensor);
     }
 
     String sensor_json()
@@ -46,17 +159,17 @@ public:
         JsonObject root = doc.to<JsonObject>();
         root["sensor"] = "proto1";
         root["counter"] = ++this->dht_counter;
-       
+
         JsonObject temperature = root.createNestedObject("temperature");
-        temperature["value"] = this->t;        
+        temperature["value"] = this->t;
         temperature["timestamp"] = this->t_timestamp;
         temperature["sensor"] = t_sensor.name;
 
         JsonObject humidity = root.createNestedObject("humidity");
-        humidity["value"] = this->h;        
+        humidity["value"] = this->h;
         humidity["timestamp"] = this->h_timestamp;
-        humidity["sensor"] = h_sensor.name;                
-        
+        humidity["sensor"] = h_sensor.name;
+
         String output;
         serializeJson(doc, output);
         return output;
@@ -72,11 +185,11 @@ private:
             Serial.println(F("Error reading temperature!"));
         }
         else
-        {           
+        {
             this->t = event.temperature;
-            this->t_timestamp = event.timestamp;                        
+            this->t_timestamp = event.timestamp;
         }
-        
+
         _dht->humidity().getEvent(&event);
         if (isnan(event.relative_humidity))
         {
@@ -85,7 +198,7 @@ private:
         else
         {
             this->h = event.relative_humidity;
-            this->h_timestamp = event.timestamp;            
+            this->h_timestamp = event.timestamp;
         }
     }
 
@@ -105,6 +218,7 @@ private:
 WiFiManager wm;
 WebServer server(80);
 TemperatureSensor dht11(DHTPIN, DHTTYPE);
+MQTTSender mqttsender;
 
 void tick()
 {
@@ -146,7 +260,7 @@ void setup_wifi()
     WiFi.mode(WIFI_STA); // explicitly set mode, esp defaults to STA+AP
     // put your setup code here, to run once:
     Serial.begin(9600);
-   
+
     //set led pin as output
     pinMode(LED, OUTPUT);
     // start ticker with 0.5 because we start in AP mode and try to connect
@@ -208,11 +322,13 @@ void setup()
 {
     setup_wifi();
     dht11.setup();
+    mqttsender.setup();
 }
 
 void loop()
 {
     server.handleClient();
+    loop_temperature(2000);
 }
 
 // HTML & CSS contents which display on web server
@@ -241,4 +357,11 @@ void handle_temperature()
     output = dht11.sensor_json();
     Serial.println(output);
     server.send(200, "application/json", output);
+    mqttsender.publishData(output);
+}
+
+void loop_temperature(int duration) {
+    Serial.println(">>> IN loop_temperature ");
+    mqttsender.publishData(dht11.sensor_json());
+    delay(duration);
 }
