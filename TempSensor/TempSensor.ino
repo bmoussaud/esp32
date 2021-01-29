@@ -219,6 +219,7 @@ WiFiManager wm;
 WebServer server(80);
 TemperatureSensor dht11(DHTPIN, DHTTYPE);
 MQTTSender mqttsender;
+bool sensor = true;
 
 void tick()
 {
@@ -300,6 +301,8 @@ void setup_wifi()
     // Display an HTML interface to the project from a browser on esp32_ip_address /
     server.on("/", handle_root);
     server.on("/temp", handle_temperature);
+    server.on("/sensor_on", handle_sensor_on);
+    server.on("/sensor_off", handle_sensor_off);
 
     server.begin();
     Serial.println("HTTP server started.");
@@ -328,7 +331,7 @@ void setup()
 void loop()
 {
     server.handleClient();
-    loop_temperature(2000);
+    loop_temperature(sensor, 2000);
 }
 
 // HTML & CSS contents which display on web server
@@ -360,8 +363,26 @@ void handle_temperature()
     mqttsender.publishData(output);
 }
 
-void loop_temperature(int duration) {
-    Serial.println(">>> IN loop_temperature ");
-    mqttsender.publishData(dht11.sensor_json());
-    delay(duration);
+//  Handle (/sensor_off)
+void handle_sensor_off()
+{
+    Serial.println(">>> IN handle_sensor_off");
+    sensor = false;
+    server.send(200, "text/html", "sensor_off");
+}
+
+// Handle (/sensor_on)
+void handle_sensor_on()
+{
+    Serial.println(">>> IN handle_sensor_on");
+    sensor = true;
+    server.send(200, "text/html", "sensor_on");
+}
+
+void loop_temperature(boolean sensor, int duration) {
+    if (sensor) {
+        Serial.println(">>> IN loop_temperature ");
+        mqttsender.publishData(dht11.sensor_json());
+        delay(duration);
+    }
 }
