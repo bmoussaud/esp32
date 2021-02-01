@@ -219,7 +219,7 @@ WiFiManager wm;
 WebServer server(80);
 TemperatureSensor dht11(DHTPIN, DHTTYPE);
 MQTTSender mqttsender;
-bool sensor = true;
+bool sensor = false;
 
 void tick()
 {
@@ -360,7 +360,7 @@ void handle_temperature()
     output = dht11.sensor_json();
     Serial.println(output);
     server.send(200, "application/json", output);
-    mqttsender.publishData(output);
+    //mqttsender.publishData(output);
 }
 
 //  Handle (/sensor_off)
