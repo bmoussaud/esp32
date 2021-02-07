@@ -31,7 +31,7 @@ class MQTTSender
     char chipId[40];
     char infoTopic[200];
     char dataTopic[200];
-    
+
 public:
     MQTTSender()
     {
@@ -51,7 +51,6 @@ public:
         strcpy(clientId, _clientId.c_str());
         strcpy(deviceId, _clientId.c_str());
 
-        
         snprintf(infoTopic, sizeof(infoTopic), "%s%s", "sensors/info/", deviceId);
         snprintf(dataTopic, sizeof(dataTopic), "%s%s", "sensors/data/", deviceId);
 
@@ -59,21 +58,26 @@ public:
         Serial.println(clientId);
 
         client.reset(new PubSubClient(_espClient));
-        client->setServer("192.168.1.42", 1883);    
-        reconnect();       
+        client->setServer("192.168.1.42", 1883);
+        reconnect();
     }
 
-    void reconnect() {
-        while (!client->connected()) {
-            Serial.print("MQTTSender| attempting MQTT connection...");  
+    void reconnect()
+    {
+        while (!client->connected())
+        {
+            Serial.print("MQTTSender| attempting MQTT connection...");
             Serial.print("MQTTSender| clientId: ");
-            Serial.println(clientId);          
+            Serial.println(clientId);
             // Attempt to connect
-            if (client->connect(clientId)) {
+            if (client->connect(clientId))
+            {
                 Serial.println("connected");
                 // Once connected, publish an announcement...
                 _registerDevice();
-            } else {
+            }
+            else
+            {
                 Serial.print("failed, rc=");
                 Serial.print(client->state());
                 Serial.println(" try again in 5 seconds");
@@ -101,15 +105,15 @@ public:
     {
         String output;
         serializeJson(root, output);
-        publish(infoTopic,output);
+        publish(infoTopic, output);
     }
 
-    void publishData(String output) 
+    void publishData(String output)
     {
         publish(dataTopic, output);
     }
 
-    void publish(char *topic, String output) 
+    void publish(char *topic, String output)
     {
         reconnect();
         Serial.print("MQTTSender|Topic:>  ");
@@ -126,7 +130,7 @@ public:
         else
         {
             Serial.println("MQTTSender| Error sending message to register the device...");
-            Serial.print("MQTTSender| State");
+            Serial.print("MQTTSender| State:");
             Serial.print(client->state());
             Serial.println(".");
         }
@@ -139,16 +143,17 @@ class TemperatureSensor
 public:
     TemperatureSensor(uint8_t pin, uint8_t type)
     {
-        _dht = new DHT_Unified(pin, type);
+        _dhtu = new DHT_Unified(pin, type);
+        _dht = new DHT(pin, type);
     }
 
     void setup()
     {
         Serial.println("Start the DHT sensor.");
-        _dht->begin();
+        _dhtu->begin();
         delay(500);
-        _dht->temperature().getSensor(&t_sensor);
-        _dht->humidity().getSensor(&h_sensor);
+        _dhtu->temperature().getSensor(&t_sensor);
+        _dhtu->humidity().getSensor(&h_sensor);
     }
 
     String sensor_json()
@@ -159,16 +164,23 @@ public:
         JsonObject root = doc.to<JsonObject>();
         root["sensor"] = "proto1";
         root["counter"] = ++this->dht_counter;
-
+        
         JsonObject temperature = root.createNestedObject("temperature");
         temperature["value"] = this->t;
-        temperature["timestamp"] = this->t_timestamp;
-        temperature["sensor"] = t_sensor.name;
+        root["timestamp"] = this->t_timestamp;
+        root["sensor"] = t_sensor.name;
+        //temperature["timestamp"] = this->t_timestamp;
+        //temperature["sensor"] = t_sensor.name;
 
         JsonObject humidity = root.createNestedObject("humidity");
         humidity["value"] = this->h;
-        humidity["timestamp"] = this->h_timestamp;
-        humidity["sensor"] = h_sensor.name;
+        //humidity["timestamp"] = this->h_timestamp;
+        //humidity["sensor"] = h_sensor.name;
+
+        JsonObject heatIndex = root.createNestedObject("heatIndex");
+        heatIndex["value"] = _dht->computeHeatIndex(this->t, this->h, false);
+        //heatIndex["timestamp"] = this->h_timestamp;
+        //heatIndex["sensor"] = h_sensor.name;
 
         String output;
         serializeJson(doc, output);
@@ -179,7 +191,7 @@ private:
     void _read_temperature()
     {
         sensors_event_t event;
-        _dht->temperature().getEvent(&event);
+        _dhtu->temperature().getEvent(&event);
         if (isnan(event.temperature))
         {
             Serial.println(F("Error reading temperature!"));
@@ -190,7 +202,7 @@ private:
             this->t_timestamp = event.timestamp;
         }
 
-        _dht->humidity().getEvent(&event);
+        _dhtu->humidity().getEvent(&event);
         if (isnan(event.relative_humidity))
         {
             Serial.println(F("Error reading humidity!"));
@@ -209,7 +221,8 @@ private:
     long dht_counter = 0;
     sensor_t t_sensor;
     sensor_t h_sensor;
-    DHT_Unified *_dht;
+    DHT_Unified *_dhtu;
+    DHT *_dht;
 };
 
 #define DHTPIN 4
@@ -331,7 +344,7 @@ void setup()
 void loop()
 {
     server.handleClient();
-    loop_temperature(sensor, 2000);
+    loop_temperature(sensor, 15000);
 }
 
 // HTML & CSS contents which display on web server
@@ -379,8 +392,10 @@ void handle_sensor_on()
     server.send(200, "text/html", "sensor_on");
 }
 
-void loop_temperature(boolean sensor, int duration) {
-    if (sensor) {
+void loop_temperature(boolean sensor, int duration)
+{
+    if (sensor)
+    {
         Serial.println(">>> IN loop_temperature ");
         mqttsender.publishData(dht11.sensor_json());
         delay(duration);
