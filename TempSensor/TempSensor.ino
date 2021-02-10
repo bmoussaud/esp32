@@ -59,12 +59,23 @@ public:
 
         client.reset(new PubSubClient(_espClient));
         client->setServer("192.168.1.42", 1883);
-        reconnect();
+    }
+
+    void disconnect()
+    {
+        if (client->connected())
+        {
+            _registerDevice("disconnected");
+        }
+        client->disconnect();
+        Serial.print("MQTTSender| clientId: ");
+        Serial.println(clientId);
+        Serial.println("disconnected");
     }
 
     void reconnect()
     {
-        while (!client->connected())
+        if (!client->connected())
         {
             Serial.print("MQTTSender| attempting MQTT connection...");
             Serial.print("MQTTSender| clientId: ");
@@ -74,20 +85,20 @@ public:
             {
                 Serial.println("connected");
                 // Once connected, publish an announcement...
-                _registerDevice();
+                _registerDevice("connected");
             }
             else
             {
                 Serial.print("failed, rc=");
                 Serial.print(client->state());
-                Serial.println(" try again in 5 seconds");
+                ///Serial.println(" try again in 5 seconds");
                 // Wait 5 seconds before retrying
-                delay(5000);
+                //delay(5000);
             }
         }
     }
 
-    void _registerDevice()
+    void _registerDevice(char* status)
     {
         StaticJsonDocument<2000> doc;
         JsonObject root = doc.to<JsonObject>();
@@ -97,6 +108,7 @@ public:
         root["clientId"] = clientId;
         root["chipId"] = chipId;
         root["sketchName"] = "BMO";
+        root["status"] = status;
 
         publishInfo(root);
     }
@@ -164,23 +176,11 @@ public:
         JsonObject root = doc.to<JsonObject>();
         root["sensor"] = "proto1";
         root["counter"] = ++this->dht_counter;
-        
-        JsonObject temperature = root.createNestedObject("temperature");
-        temperature["value"] = this->t;
+        root["temperature"] = this->t;
         root["timestamp"] = this->t_timestamp;
         root["sensor"] = t_sensor.name;
-        //temperature["timestamp"] = this->t_timestamp;
-        //temperature["sensor"] = t_sensor.name;
-
-        JsonObject humidity = root.createNestedObject("humidity");
-        humidity["value"] = this->h;
-        //humidity["timestamp"] = this->h_timestamp;
-        //humidity["sensor"] = h_sensor.name;
-
-        JsonObject heatIndex = root.createNestedObject("heatIndex");
-        heatIndex["value"] = _dht->computeHeatIndex(this->t, this->h, false);
-        //heatIndex["timestamp"] = this->h_timestamp;
-        //heatIndex["sensor"] = h_sensor.name;
+        root["humidity"] = this->h;
+        root["heatIndex"] = _dht->computeHeatIndex(this->t, this->h, false);
 
         String output;
         serializeJson(doc, output);
@@ -380,6 +380,7 @@ void handle_temperature()
 void handle_sensor_off()
 {
     Serial.println(">>> IN handle_sensor_off");
+    mqttsender.disconnect();
     sensor = false;
     server.send(200, "text/html", "sensor_off");
 }
@@ -388,6 +389,7 @@ void handle_sensor_off()
 void handle_sensor_on()
 {
     Serial.println(">>> IN handle_sensor_on");
+    mqttsender.reconnect();
     sensor = true;
     server.send(200, "text/html", "sensor_on");
 }
