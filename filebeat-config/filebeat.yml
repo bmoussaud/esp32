@@ -1,0 +1,48 @@
+###################### Filebeat Configuration Example #########################
+
+# This file is an example configuration file highlighting only the most common
+# options. The filebeat.reference.yml file from the same directory contains all the
+# supported options with more comments. You can use it as a reference.
+#
+# You can find the full configuration reference here:
+# https://www.elastic.co/guide/en/beats/filebeat/index.html
+
+# For more available modules and options, please see the filebeat.reference.yml sample
+# configuration file.
+
+# ============================== Filebeat inputs ===============================
+
+filebeat.inputs:
+- type: mqtt
+  hosts: 
+    - tcp://localhost:1883
+    - ssl://secure_broker:8883
+  topics: 
+    - sensors/data/ESP_ac67b236b6d4
+  enabled: true
+  tags:
+    - iot
+    - sensor
+  fields_under_root: true
+  fields:
+    event.dataset: sensor-data
+    event.module: filebeat-mqtt
+    event.outcome: iot-sensors
+    event.category: sensor 
+  processors:
+    - decode_json_fields:
+        fields:
+          - message
+        process_array: false
+        max_depth: 1
+        target: ''
+        overwrite_keys: false
+        add_error_key: true
+    - add_host_metadata:
+        when.not.contains.tags: forwarded
+    - add_cloud_metadata: null
+output.file:
+  path: "/tmp/filebeat"
+  filename: filebeat2.json
+
+
