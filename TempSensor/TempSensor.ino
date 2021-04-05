@@ -58,7 +58,7 @@ public:
         Serial.println(clientId);
 
         client.reset(new PubSubClient(_espClient));
-        client->setServer("192.168.1.42", 1883);
+        client->setServer("192.168.1.41", 1883);
     }
 
     void disconnect()
